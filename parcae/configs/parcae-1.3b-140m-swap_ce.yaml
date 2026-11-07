@@ -1,0 +1,41 @@
+run_name: parcae-1.3b-local140m-lr125-swap_ce
+model: /path/to/parcae-1.3b
+out_dir: outputs/unused
+
+aux: swap_ce
+gamma: 0.01
+swap_detach_hidden: true
+trainable: all
+
+optimizer: MuonAdamW
+optim_config:
+  lr: 1.25e-4  # paper App. I stated 1.3B BeNice lr (500-step sweep); not rescaled
+  betas: [0.8, 0.95]
+  eps: 1.0e-10
+  weight_decay: 0.0
+  muon_wd: 0.2
+  grad_clip: 1.0
+
+lr_schedule:
+  schedule: wsd
+  warmup_frac: 0.05
+  decay_frac: 0.20
+  min_lr_ratio: 0.0
+
+world_batch_size: 256
+micro_batch_size: 2
+seq_len: 2048
+num_recurrence: 8
+recurrence_sampling: poisson
+lockstep_n: true
+steps: 267
+
+train_dir: /path/to/train
+val_dir: /path/to/val
+
+save_at: []
+save_ckpt: true
+ckpt_every: 10
+final_eval_samples: 16
+log_every: 5
+model_telemetry: false

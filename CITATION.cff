@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use this work, please cite BeNice! (the work it builds on) and this repository."
+title: "Don't Peek at the Diagonal: Training Looped Language Models for Cross-Recurrence KV Sharing"
+type: software
+authors:
+  - family-names: Hu
+    given-names: Yang
+repository-code: "https://github.com/yanghu819/benice-self-live"
+license: MIT
+date-released: "2026-11-07"
+references:
+  - type: article
+    title: "BeNice! Closing Looping's Inference-Memory Gap via KV-Sharing"
+    authors:
+      - family-names: Prairie
+        given-names: Hayden
+      - family-names: Ryan
+        given-names: Jacob M.
+      - family-names: Berg-Kirkpatrick
+        given-names: Taylor
+      - family-names: Fu
+        given-names: Daniel Y.
+    year: 2026
+    identifiers:
+      - type: other
+        value: "arXiv:2610.31633"
+    url: "https://arxiv.org/abs/2610.31633"

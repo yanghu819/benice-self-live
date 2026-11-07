@@ -1,0 +1,106 @@
+diff --git a/recft/model.py b/recft/model.py
+index 08bca18..31f1dd9 100644
+--- a/recft/model.py
++++ b/recft/model.py
+@@ -363,23 +363,39 @@ def _swapped_attn_output(
+     x_kv: torch.Tensor,
+     freqs_kv: torch.Tensor,
+     ve_kv: torch.Tensor | None,
++    self_live: bool = False,
+ ) -> torch.Tensor:
+     if hasattr(attention, "_chunk_kda"):
+         return attention(
+             x_q, freqs_q, ve=ve_q, state_source=x_kv, state_ve=ve_kv
+         )
+ 
+-    q, _, _ = _recompute_qkv(attention, x_q, freqs_q, ve_q)
++    q, k_self, v_self = _recompute_qkv(attention, x_q, freqs_q, ve_q)
+     _, k, v = _recompute_qkv(attention, x_kv, freqs_kv, ve_kv)
+     k = _repeat_kv_heads(k, attention.n_head)
+     v = _repeat_kv_heads(v, attention.n_head)
+-    y = F.scaled_dot_product_attention(
+-        q.transpose(1, 2),
+-        k.transpose(1, 2),
+-        v.transpose(1, 2),
+-        dropout_p=0.0,
+-        is_causal=True,
+-    )
++    if self_live:
++        # Shared-cache decoding has no final-recurrence K/V for the current
++        # token yet: history reads R=T, the diagonal reads the live R=0 K/V.
++        k_self = _repeat_kv_heads(k_self, attention.n_head)
++        v_self = _repeat_kv_heads(v_self, attention.n_head)
++        sequence = q.shape[1]
++        mask = torch.ones(sequence, sequence, dtype=torch.bool, device=q.device)
++        mask = torch.cat((mask.tril(-1), torch.eye(sequence, dtype=torch.bool, device=q.device)), dim=1)
++        y = F.scaled_dot_product_attention(
++            q.transpose(1, 2),
++            torch.cat((k, k_self), dim=1).transpose(1, 2),
++            torch.cat((v, v_self), dim=1).transpose(1, 2),
++            attn_mask=mask,
++        )
++    else:
++        y = F.scaled_dot_product_attention(
++            q.transpose(1, 2),
++            k.transpose(1, 2),
++            v.transpose(1, 2),
++            dropout_p=0.0,
++            is_causal=True,
++        )
+     batch, sequence = q.shape[0], q.shape[1]
+     y = y.transpose(1, 2).reshape(batch, sequence, -1)
+     return attention.c_proj(y)
+@@ -391,6 +407,7 @@ def cache_swap_ce(
+     rec_inputs: dict[int, dict[int, tuple[Any, ...]]],
+     core_x0: torch.Tensor | None,
+     detach_hidden: bool,
++    self_live: bool = False,
+ ) -> torch.Tensor:
+     """CE of one core pass with Q/residual @ R=0 and KV @ R=T (all layers)."""
+     if core_x0 is None:
+@@ -421,6 +438,7 @@ def cache_swap_ce(
+             x_kv,
+             freqs_kv,
+             ve_kv,
++            self_live,
+         )
+         x = attn_out + x
+         x = block.mlp(block.norm_2(x)) + x
+@@ -520,7 +538,7 @@ class RecFTModule(nn.Module):
+                 self.model,
+                 input_ids,
+                 num_steps,
+-                want_cache_swap=self.aux == "swap_ce",
++                want_cache_swap=self.aux in ("swap_ce", "swap_ce_self_live"),
+                 swap_detach_hidden=self.swap_detach_hidden,
+                 grad_loops=grad_loops,
+                 per_sequence=per_sequence,
+@@ -534,13 +552,14 @@ class RecFTModule(nn.Module):
+                     device=logits.device,
+                     dtype=torch.float32,
+                 )
+-            elif self.aux == "swap_ce":
++            elif self.aux in ("swap_ce", "swap_ce_self_live"):
+                 aux = cache_swap_ce(
+                     self.model,
+                     input_ids,
+                     rec_inputs,
+                     core_x0,
+                     self.swap_detach_hidden,
++                    self.aux == "swap_ce_self_live",
+                 )
+             else:
+                 raise ValueError(f"unknown aux: {self.aux}")
+diff --git a/recft/settings.py b/recft/settings.py
+index dab4d40..4212af3 100644
+--- a/recft/settings.py
++++ b/recft/settings.py
+@@ -41,7 +41,7 @@ class FinetuneSettings:
+     resume: str | None = None
+     seed: int = 42
+ 
+-    aux: Literal["swap_ce", "none"] = "swap_ce"
++    aux: Literal["swap_ce", "swap_ce_self_live", "none"] = "swap_ce"
+     gamma: float = 0.01
+     gamma_end_step: int | None = None
+     gamma_after: float = 0.0
